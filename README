@@ -39,12 +39,15 @@ To install DBIx::SQLCrosstab type the following:
    make install
 
 EXAMPLES
-In the directory examples there are two files:
-    - xtab.sqlite   is a database in SQLite format
+In the directory examples there are several files:
+    - crosstab.sqlite   is a database in SQLite format
     - sqlcrosstab_example.pl is an example of how to set
              the initial parameters and get the results
              in several formats.
-    - xtab.mysql is a database in MySQL format
+    - create_crosstab_innodb.mysql and create_crosstab_myisam.mysql 
+         contain the sample database in MySQL format
+    - crosstab_sample.html contains the database structure and
+         description
 
 DEPENDENCIES
 

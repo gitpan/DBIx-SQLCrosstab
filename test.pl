@@ -1,17 +1,24 @@
 #!/usr/bin/perl -w
 
-# WARNING!
+# 
+# +------------+
+# |  WARNING!  |
+# +------------+
+# 
 # The code in this script is only meant to perform 
 # an installation test.
+#
 # It is not meant for production purposes, since it uses
-# some non-documented features.
+# some NON-DOCUMENTED features.
+#      ^^^^^^^^^^^^^^
 #
 # To perform a test with a real database, use the script
-# in the examples directory
+# in the "examples" directory
 
 use strict;
 use DBI;
-use DBIx::SQLCrosstab::Format;
+use DBIx::SQLCrosstab         1.15;
+use DBIx::SQLCrosstab::Format 0.06;
 my $othertest = shift;
 
 my $col_names = [ 'country', 'location', 
@@ -84,28 +91,50 @@ my $params = {
     };
     
 my $xt;
+my $xt_stub;
 eval {$xt = DBIx::SQLCrosstab::Format->new($params)} ;
+eval {$xt_stub = DBIx::SQLCrosstab::Format->new('STUB')};
 
-my @tests = (qw(creation recs query table bare_table xml yaml
+#
+# Notice: the tests MUST run in this given sequence.
+# 
+# Calling a later test without passing the 
+# initial ones will make eveything fail.
+
+my @tests = (qw(creation stub_create set_param
+                save_params load_params
+                recs query recs_stub query_stub 
+                table table_stub bare_table 
+                xml xml_stub yaml
                 struct_hoh struct_losh struct_hoh
                 struct_loh struct_lol ));
+
 my %all_tests = (
     creation    => sub { defined $xt },
+    stub_create => sub { defined $xt_stub },
+    set_param   => sub { $xt_stub->set_param(dbh => $params->{dbh})},
+    save_params => sub { $xt->save_params("test/test_params") },
+    load_params => sub { $xt_stub->load_params("test/test_params") },
     recs        => sub { $xt->get_recs },
     query       => sub { $xt->{query} },
+    recs_stub   => sub { $xt_stub->get_recs },
+    query_stub  => sub { $xt_stub->{query} },
     table       => sub { $xt->as_html },
+    table_stub  => sub { $xt_stub->as_html },
     bare_table  => sub { $xt->as_bare_html },
     xml         => sub { $xt->as_xml },
+    xml_stub    => sub { $xt_stub->as_xml },
     struct_lol  => sub { $xt->as_perl_struct('lol') },
     struct_loh  => sub { $xt->as_perl_struct('loh') },
     struct_losh => sub { $xt->as_perl_struct('losh') },
     struct_hoh  => sub { $xt->as_perl_struct('hoh') },
     yaml        => sub { $xt->as_yaml()},
-    failure     => sub { DBIx::SQLCrosstab::seterr('This test MUST fail - Testing error reporting function')},
+    failure     => sub { DBIx::SQLCrosstab::seterr(
+           'This test MUST fail - Testing error reporting function')},
     # to activate this latest test, call the script as 
     # $ perl test.pl failure
 );
-
+     
 if ($othertest) {
     push @tests, $othertest if exists $all_tests{$othertest};
 }
@@ -140,5 +169,7 @@ else {
     printf "%4.2f%s passed, %4.2f%s failed\n", 
         $passed / ($total_tests) * 100, '%',
         $failed / ($total_tests) * 100, '%' ;
-    print "Object not created - Additional tests not performed\n" unless $xt;
+    print "Object not created - Additional tests not performed\n" 
+        unless $xt;
 }
+

@@ -4,8 +4,8 @@ use warnings;
 use DBI;
 use DBIx::SQLCrosstab;
 
-our $VERSION = '0.5';
-# 8-Oct-2003
+our $VERSION = '0.6';
+# 12-Oct-2003
 
 require 5.006;
 
@@ -14,19 +14,18 @@ our @ISA= qw(DBIx::SQLCrosstab);
 our @EXPORT=qw();
 our @EXPORT_OK=qw();
 
-my %html_colors = (
+my %_html_colors = (
     text    => "#009900", # green
     number  => "#FF0000", # red
     header  => "#0000FF", # blue
     footer  => "#000099", # darkblue
 );
 
-my %table_params = (
+my %_table_params = (
     border => 1,
     cellspacing => 0,
     cellpadding => 2
 );
-
 
 sub _format {
     my $self = shift;
@@ -46,13 +45,15 @@ sub _format {
     if ($self->{add_colors} ) {
         my $color_type;
         $color_type = $what eq "data" ? $numeric ? "number": "text" : $what;
-        $str = qq/<font color="$html_colors{$color_type}">/ . $str . "</font>";
+        $str = qq/<font color="$_html_colors{$color_type}">/ . $str . "</font>";
     }
     return $str;
 }
 
 sub _find_headers {
     my $self = shift;
+    return seterr("can't create headers before fetching records ")
+        unless $self->{recs};
     my $tree = Tree::DAG_Node->new;
     $tree->name('xtab');
 
@@ -251,7 +252,7 @@ sub as_bare_html {
     my $self = shift;
     return DBIx::SQLCrosstab::seterr("can't create table before record fetching") 
         unless $self->{recs};
-    my $html = qq(<table border="$table_params{border}" cellspacing="$table_params{cellspacing}" cellpadding="$table_params{cellpadding}">\n);
+    my $html = qq(<table border="$_table_params{border}" cellspacing="$_table_params{cellspacing}" cellpadding="$_table_params{cellpadding}">\n);
     #my $html = qq(<table border="1" cellspacing="0" cellpadding="3">\n);
     $html .= "<tr>";
     $html .= "<td>". $self->_strip_separator($_)."</th>" 
@@ -287,13 +288,13 @@ sub as_html {
     if ($self->{add_colors}) {
         for (qw(text number header footer)) {
             if (exists $self->{$_."_color"}) {
-                $html_colors{$_} = $self->{$_."_color"};
+                $_html_colors{$_} = $self->{$_."_color"};
             }
         }
     }
     for (qw(border cellpadding cellspacing)) {
         if (exists $self->{"table_$_"}) {
-            $table_params{$_} = $self->{"table_$_"}
+            $_table_params{$_} = $self->{"table_$_"}
         }
     }
     my $html ="";
@@ -301,7 +302,7 @@ sub as_html {
     {
        $html = $self->html_header;
     }
-    $html .= qq(<table border="$table_params{border}" cellspacing="$table_params{cellspacing}" cellpadding="$table_params{cellpadding}">\n);
+    $html .= qq(<table border="$_table_params{border}" cellspacing="$_table_params{cellspacing}" cellpadding="$_table_params{cellpadding}">\n);
     if ($self->{title_in_header}) {
         my $colspan1 = scalar @{$self->{NAME}};
         $html .= "<tr><th colspan=$colspan1>$self->{title}</th></tr>\n";
@@ -800,23 +801,96 @@ contains the list of column names, properly quoted and escaped.
 In addition to the attributes available in DBIx::SQLCrosstab,
 the folowing ones become available in this class.
 They may be useful if you want to implement your own
-output methods.
+output methods. 
+
+=head2 Extending DBIx::SQLCrosstab::Format
+
+The appropriate way of extending this class is through
+inheritance. Just create a descendant of DBIx::SQLCrosstab::Format
+and implement your new methods.
+The attributes with the relevant information become available 
+after a call to the private method _find_headers().
+
+The path to extension is something like the following.
+
+First, create a new module:
+
+ package DBIx::SQLCrosstab::Format::Extended;
+ use DBI;
+ use DBIx::SQLCrosstab;
+
+ our $VERSION = '0.1';
+ require Exporter;
+ our @ISA= qw(DBIx::SQLCrosstab::Format);
+ our @EXPORT=qw();
+ our @EXPORT_OK=qw();
+
+ sub as_myformat {
+    my $self = shift;
+    return undef unless $self->_find_headers();
+    my $new_format = 
+    do_something_smart_with($self->{recs_tree},
+                      $self->{header_formats});
+    return $new_format;
+ }
+
+ sub do_something_smart_with {
+    my $recs_tree = shift;
+    my $header_formats = shift;
+    # show off your skills here
+ }
+
+ 1;
+
+Then, use the new module as you would use the parent one.
+
+    use DBIx::SQLCrosstab::Format::Extended;
+    my $dbh=DBI->connect("dbi:driver:database"
+        "user","password", {RaiseError=>1})
+            or die "error in connection $DBI::errstr\n";
+
+    my $xtab = DBIx::SQLCrosstab::Format::Extended->new($params)
+        or die "error in creation ($DBIx::SQLCrosstab::errstr)\n";
+
+    my $query = $xtab->get_query("#")
+        or die "error in query building $DBIx::SQLCrosstab::errstr\n";
+
+    if ( $xtab->get_recs) {
+        print $xtab->as_myformat;
+    }
+
 
 =over 4
 
-=item header_formats
+=item {header_formats}
 
 Contains a reference to an array of arrays, one for each level of
 headers. Each cell is described with a hash containig name, colspan 
 and rowspan values.
-Available after any of as_html or as_xml methods.
+Available after a call to _find_headers().
 
-=item recs_formats
+=item {recs_formats}
 
 Contains a refernce to a hash descrbing the structure of the row 
 level. Each level contains a list of fields and relative rowspans.
-Available after any of as_html or as_xml methods.
+Available after a call to _find_headers().
+
+=item {recs_tree}
+
+Contains a Tree::DAG_Node object with the structure of the column 
+headers.  
+Available after a call to _find_headers().
+
+=item {header_tree}
+
+Contains a Tree::DAG_Node object with the structure of the row 
+headers. 
+Available after a call to _find_headers().
 
 =back
+
+=head1 SEE ALSO
+
+L<DBIx::SQLCrosstab>
 
 =cut

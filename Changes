@@ -1,9 +1,21 @@
 Revision history for Perl extension DBIx::SQLCrosstab.
 
-1.13 08-Oct-2003
+1.15 12-Oct-2003
+    - Added new methods:
+          set_param()   to add or modify parameters after creation
+          get_params()  to get the current parameters into a string
+          save_params() to save the parameters to a file
+          load_params() to load the parameters from a file
+    - Added new examples and database diagram
+    - Added new sample schemas
+    - Fixed some documentation issues
+    
+1.14 08-Oct-2003
     First distribution version
+    
 1.00-1.12
     Building features and bug fixes
+
 1.00 12-Sep-2003
 	- original version
 

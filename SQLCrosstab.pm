@@ -2,10 +2,11 @@ package DBIx::SQLCrosstab;
 use strict;
 use warnings;
 use DBI;
+use Data::Dumper;
 use Tree::DAG_Node;
 
-our $VERSION = '1.14';
-# 08-Oct-2003
+our $VERSION = '1.15';
+# 12-Oct-2003
 
 require 5.006;
 
@@ -15,41 +16,10 @@ our @EXPORT=qw();
 our @EXPORT_OK=qw();
 
 our $errstr = "";
-my $RaiseError = 0;
-my $PrintError = 0;
+my $_RaiseError = 0;
+my $_PrintError = 0;
 
-sub new {
-    my $class = shift;
-    my $opt = shift;
-    my $self = bless {
-        }, $class;
-    if ($opt && (ref $opt eq 'HASH')) {
-        for (keys %$opt) {
-            $self->{ $_} = $opt->{$_};
-        }
-    }
-    if ($self->_check_allowed) {
-        if ($self->{RaiseError}) {
-            $RaiseError = 1;
-        }
-        return $self->_check_required
-    }
-    return undef;
-}
-
-sub seterr {
-    my $msg = shift || "-- no msg --";
-    $errstr = $msg ;
-    if ($RaiseError) {
-        die "$msg\n ";
-    }
-    elsif ($PrintError) {
-        warn "$msg\n";
-    }
-    return undef;
-}
-
-my %xkeywords = (
+my %_xkeywords = (
      dbh                => 1,
      rows               => 1,
      cols               => 1,
@@ -92,12 +62,12 @@ my %xkeywords = (
      PrintError         => 0,
 );
 
-my %rowkeywords = (
+my %_rowkeywords = (
     col         => 1,
     alias       => 0
 );
 
-my %colkeywords = (
+my %_colkeywords = (
     id             => 1,
     from           => 1,
     value          => 0,
@@ -108,15 +78,144 @@ my %colkeywords = (
     col_list       => 0,
 );
 
-my  @operations = map {qr/^\s*$_\s*$/i} (qw( count sum avg std max min));
+my $_stub = {
+    dbh    => {dsn=>"dbi:ExampleP:test"},
+    op     => 'COUNT',
+    op_col => 'dummy',
+    from   => 'dummy',
+    cols => [ {id  => 'dummy', from => 'dummy'}],
+    rows => [ {col => 'dummy'}],
+};
+
+my  @_operations = map {qr/^\s*$_\s*$/i} (qw( count sum avg std max min));
+
+sub new {
+    my $class = shift;
+    my $opt = shift;
+    my $self = bless {
+        }, $class;
+    return seterr("Parameters required in $class constructor")
+        unless $opt;
+    if (ref $opt eq 'HASH') {
+        for (keys %$opt) {
+            $self->{ $_} = $opt->{$_};
+        }
+    }
+    elsif ($opt =~/^stub$/i) {
+        for (keys %$_stub) {
+            $self->{$_} = $_stub->{$_}
+        }             
+    }
+    if ($self->_check_allowed) {
+        if ($self->{RaiseError}) {
+            $_RaiseError = 1;
+        }
+        return $self->_check_required
+    }
+    return undef;
+}
+
+#
+# set_param( cols => [{id => 'mycol', from => 'mytable'}] )
+#
+
+sub set_param {
+    my $self = shift;
+    while (@_) {
+        return seterr("odd number of parameters in set_param")
+            unless 2 <= scalar(@_) ;
+        my $param = shift;
+        my $value = shift;
+        if (exists $_xkeywords{$param}) {
+            $self->{$param} = $value;
+            return undef unless $self->_check_required;
+        }
+        else {
+            return seterr("unrecognized parameter $param ");
+        }
+    }
+    return 1;
+}
+
+sub get_params {
+    my $self = shift;
+    my $params_name = "params";
+    my %params =();
+    for (keys %_xkeywords) {
+        next if /^dbh$/;
+        if (exists $self->{$_} and defined($self->{$_})) {
+            $params{$_} = $self->{$_};
+        }
+    }
+    local $Data::Dumper::Indent = 1;
+    return Data::Dumper->Dump([\%params],[$params_name]);
+}
+
+sub save_params {
+    my $self = shift;
+    my $param_file_name = shift || "xtab_params.pl";
+    open PARAMS, "> $param_file_name"
+        or return seterr("can't open $param_file_name");
+    print PARAMS $self->get_params();
+    close(PARAMS) or return seterr("can't close $param_file_name");
+    return 1;
+}
+
+sub load_params {
+    my $self = shift;
+    my $params_file_name = shift;
+    my $params = undef;
+    return seterr("filename required to load_params()")
+        unless $params_file_name;
+    open PARAMS, "< $params_file_name"
+        or return seterr("can't open $params_file_name");
+    $errstr = undef;
+    {
+        local $/;
+        my $value = <PARAMS>;
+        if ($value) {
+            eval $value;
+            if ($@) {
+                seterr("error retrieving parameters from $params_file_name");
+            }
+            seterr("no params found in $params_file_name") 
+                unless $params;
+        }
+        else {
+            seterr("no params found in $params_file_name") 
+        }
+    }
+    close(PARAMS) or return seterr("can't close $params_file_name");
+    return undef if $errstr;
+    return seterr("invalid parameters in $params_file_name")
+        unless ref($params) eq 'HASH';
+    for (keys %$params) {
+        return seterr("unrecognized option ($_) in file $params_file_name")
+            unless exists $_xkeywords{$_};
+        $self->{$_} = $params->{$_};
+    }
+    return $self->_check_required;
+}
+
+sub seterr {
+    my $msg = shift || "-- no msg --";
+    $errstr = $msg ;
+    if ($_RaiseError) {
+        die "$msg\n ";
+    }
+    elsif ($_PrintError) {
+        warn "$msg\n";
+    }
+    return undef;
+}
 
 sub _check_allowed{
     my $self = shift;
-    $RaiseError = (exists($self->{RaiseError}) && $self->{RaiseError} )  ;
-    $PrintError = (exists($self->{PrintError}) && $self->{PrintError});
+    $_RaiseError = (exists($self->{RaiseError}) && $self->{RaiseError} )  ;
+    $_PrintError = (exists($self->{PrintError}) && $self->{PrintError});
     for (keys %$self) {
         return seterr("unrecognized option '$_'")
-            unless defined $xkeywords{$_} ;
+            unless defined $_xkeywords{$_} ;
     }
     if ($self->{col_exclude}) {
         return seterr ("list required with parameter 'col_exclude'")
@@ -137,7 +236,7 @@ sub _check_required_kw {
 
 sub _check_required {
     my $self = shift;
-    for (grep {$xkeywords{$_}} keys %xkeywords) {
+    for (grep {$_xkeywords{$_}} keys %_xkeywords) {
         return seterr("required option '$_' not defined")
             unless defined $self->{$_};
     }
@@ -170,7 +269,7 @@ sub _check_required {
         return seterr("\$dbh parameter required")
     }
     for my $row (@{$self->{rows}}) {
-        for (grep {$rowkeywords{$_}} keys %rowkeywords) {
+        for (grep {$_rowkeywords{$_}} keys %_rowkeywords) {
             return seterr(
                     "missing required parameter ($_) in row definition")
                 unless exists $row->{$_}
@@ -178,11 +277,11 @@ sub _check_required {
         }
         for (keys %$row) {
             return seterr("unrecognized row parameter ($_)")
-                unless exists $rowkeywords{$_};
+                unless exists $_rowkeywords{$_};
         }
     }
     for my $col (@{$self->{cols}}) {
-        for (grep {$colkeywords{$_}} keys %colkeywords) {
+        for (grep {$_colkeywords{$_}} keys %_colkeywords) {
             return seterr(
                     "missing required parameter ($_) in column definition")
                 unless exists $col->{$_}
@@ -190,11 +289,11 @@ sub _check_required {
         }
         for (keys %$col) {
             return seterr("unrecognized row parameter ($_)")
-                unless exists $colkeywords{$_};
+                unless exists $_colkeywords{$_};
         }
     }
     my $op_allowed = 0;
-    for my $op (@operations) {
+    for my $op (@_operations) {
         if ($self->{op} =~ $op ) {
             $op_allowed =1;
             last;
@@ -509,7 +608,7 @@ sub _get_xvalues {
         if ($_->{col_list}) {
             my $list = $_->{col_list};
             unless (ref $list eq 'ARRAY') {
-                return seterr("list of value expected in parameter 'col_list'");
+                return seterr("list of values expected in parameter 'col_list'");
             }
             for my $val (@$list) {
                 return seterr("elements in {col_list} must be hash references")
@@ -548,7 +647,7 @@ sub _get_xvalues {
             if ($@) {
                 return seterr
                 "error while retrieving column values for $_->{id}\n"
-                . qq/query: "$colquery"\n/
+                . qq(query: "$colquery"\n)
                 . "error: $DBI::errstr\n";
             }
             eval { $xvals = $sth->fetchall_arrayref({}) };
@@ -628,7 +727,7 @@ sub get_query {
                 or return undef;
 
     my %realnames =();
-    my $col_count ="fld001";
+    my $col_count ="xfld001";
 
     for my $op ($self->{op}, 
         (ref($self->{add_op}) eq 'ARRAY')? 
@@ -807,14 +906,23 @@ sub get_recs {
     return seterr("call to get_recs() without get_query()")
         unless $self->{query};
     my $sth;
+    local $self->{dbh}->{RaiseError} = 1;
+    local $self->{dbh}->{PrintError} = 0;
     eval {
         $sth = $self->{dbh}->prepare($self->{query});
+    };
+    if ($@) {
+        return
+            seterr "error preparing Crosstab query ($DBI::errstr)\n";
+    }
+    eval {
         $sth->execute;
     };
     if ($@) {
         return
-            seterr "error executing the Crosstab query ($DBI::errstr)\n";
+            seterr "error executing Crosstab query ($DBI::errstr)\n";
     }
+
     my @fnames = map {exists $self->{realnames}{$_} ?
             $self->{realnames}{$_} : $_ } @{$sth->{NAME}};
     my @lengths =  map {
@@ -829,7 +937,6 @@ sub get_recs {
     if ($@) { 
         return seterr ("error fetching records ($DBI::errstr)")
     }
-
     if($self->{remove_if_zero}) {
         my @zeroes = map {defined $_? 0 : 1 } @{$recs->[0]} ; 
         for my $r (@$recs) {
@@ -1391,6 +1498,75 @@ $params is a hash reference containing at least the following parameters:
     header_color
     footer_color
             Change the default colors to custom ones  
+
+     table_border       
+     table_cellspacing 
+     table_cellpadding 
+            Change the settings for HTML table borders. Defaults are:
+            border      => 1
+            cellspacing => 0
+            cellpadding => 2
+
+=item set_param
+
+Allows to set one or more parameters that you couldn't pass with the constructor.
+
+       $xtab->set_param( cols => [ { id => 'dept', from => 'departments' } ]  )
+            or die "error setting parameter: DBIx::SQLCrosstab::errstr\n";
+
+       $xtab->set_param( 
+                            remove_if_null => 1,
+                            remove_if_zero => 1,
+                            title          => 'Some nice number crunching'
+                        )
+            or die "error setting parameter: DBIx::SQLCrosstab::errstr\n";
+
+You can use this method together with a dummy constructor call:
+
+        my $xtab = DBIx::SQLCrosstab->new ('STUB')
+            or die "can't create ($DBIx::SQLCrosstab::errstr)\n";
+
+        $xtab->set_param( 
+                          dbh    => $dbh,
+                          op     => 'SUM',
+                          op_col => 'amount',
+                          cols   => $mycolumns,
+                          rows   => $myrows,
+                          from   => 'mytable'
+                          )
+            or die "error setting parameter: DBIx::SQLCrosstab::errstr\n";
+
+=item get_params
+
+Returns a string containing te parameters to replicate the current 
+DBIx::SQLCrosstab object. The data is represented as Perl code, and it can
+be evaluated as such. The variable's name is 'params'.
+It does not include the 'dbh' parameter.
+
+    my $params = $xtab->get_params
+        or warn "can't get params ($DBIx::SQLCrosstab::errstr)";
+
+=item save_params
+
+Saves the parameters necessary to rebuild the current object to a given file.
+This function stores what is returned by get_params into a text file.
+Notice that the 'dbh' option is not saved.
+
+    unless ($xtab->save_params('myparams.pl')
+        die "can't save current params ($DBIx::SQLCrosstab::errstr)";
+
+=item load_params
+
+Loads previously saved parameters into the current object.
+Remember that 'dbh' is not restored, and must be set separately with
+set_param().
+
+    my $xtab = DBIx::SQLCrosstab->new('stub')
+        or die "$DBIx::SQLCrosstab::errstr";
+    $xtab->load_params('myparams.pl')
+        or die "$DBIx::SQLCrosstab::errstr";
+    $xtab->set_param( dbh => $dbh )
+        or die "$DBIx::SQLCrosstab::errstr";
 
 =item get_query
 
