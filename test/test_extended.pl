@@ -10,7 +10,7 @@ my $dbh;
 my $driver = shift || 'SQLite';
 
 if ($driver eq 'SQLite') {
-    $dbh = DBI->connect("dbi:SQLite:crosstab.sqlite",
+    $dbh = DBI->connect("dbi:SQLite:test/crosstab.sqlite",
     "","",{RaiseError=>1, PrintError=> 0 });
 } 
 elsif($driver eq 'mysql') {
@@ -196,7 +196,7 @@ unless ($xtab2->get_query and $xtab2->get_recs) {
 #
 # Save the current parameters to a file
 #
-$xtab2->save_params("xtab2.pl") or die "$DBIx::SQLCrosstab::errstr";
+$xtab2->save_params("test/xtab2.pl") or die "$DBIx::SQLCrosstab::errstr";
 
 #
 # Create a third object
@@ -207,7 +207,7 @@ my $xtab3 = DBIx::SQLCrosstab::Format->new('STUB')
 #
 # Use the saved parameters to set it up
 #
-$xtab3->load_params("xtab2.pl") 
+$xtab3->load_params("test/xtab2.pl") 
     or die "\$xtab3 -> $DBIx::SQLCrosstab::errstr";
 $xtab3->set_param( dbh => $dbh) 
     or die "\$xtab3 -> $DBIx::SQLCrosstab::errstr";
@@ -223,7 +223,7 @@ for my $xt (($xtab1, $xtab2, $xtab3)) {
     # 
     # create a html example
     # 
-    open HTML, ">$fname.html" 
+    open HTML, ">test/$fname.html" 
         or die "can't create $fname.html\n";
     print HTML  $xt->html_header; 
     print HTML  "<h3>",$xt->op_list, " FROM ", $xt->{title}, "</h3>";
@@ -243,7 +243,7 @@ for my $xt (($xtab1, $xtab2, $xtab3)) {
     # 
     my $xml = $xt->as_xml 
         or die "$DBIx::SQLCrosstab::errstr";
-    open XML, ">$fname.xml" 
+    open XML, ">test/$fname.xml" 
         or die "can't create $fname.xml";
     print XML $xml;
     close XML;
@@ -252,17 +252,23 @@ for my $xt (($xtab1, $xtab2, $xtab3)) {
     # 
     # create a xls example (requires Spreadsheet::WriteExcel)
     # 
-    if ( $xt->as_xls("$fname.xls", "both") ) {
-        print "$fname.xls created\n";
+    eval { require Spreadsheet::WriteExcel; } ;
+    # only if Spreadsheet::WriteExcel is installed
+    if ($@) {
+        print "Spreadsheet::WriteExcel not installed - test skipped\n"
     }
     else {
-        print "$DBIx::SQLCrosstab::errstr\n";
+        if ( $xt->as_xls("test/$fname.xls", "both") ) {
+            print "$fname.xls created\n";
+        }
+        else {
+            print "$DBIx::SQLCrosstab::errstr\n";
+        }
     }
-
     # 
     # create a csv example
     # 
-    open CSV, ">$fname.csv" 
+    open CSV, ">test/$fname.csv" 
         or die "can't create $fname.csv\n";
     my $csv = $xt->as_csv('header')
         or die "$DBIx::SQLCrosstab::errstr\n";
@@ -273,22 +279,28 @@ for my $xt (($xtab1, $xtab2, $xtab3)) {
     # 
     # create a yaml example
     # 
-    open YAML, ">$fname.yaml" 
-        or die "can't create $fname.yaml\n";
-    my $yaml = $xt->as_yaml;
-    if ($yaml) {
-         print YAML $yaml;
+    eval { require YAML; };
+    # only if YAML is installed
+    if ($@) {
+        print "YAML not installed - test skipped\n";
     }
     else {
-         print "$DBIx::SQLCrosstab::errstr\n";
+        open YAML, ">test/$fname.yaml" 
+            or die "can't create $fname.yaml\n";
+        my $yaml = $xt->as_yaml;
+        if ($yaml) {
+             print YAML $yaml;
+        }
+        else {
+             print "$DBIx::SQLCrosstab::errstr\n";
+        }
+        close YAML;
+        print "$fname.yaml created\n" if $yaml;
     }
-    close YAML;
-    print "$fname.yaml created\n" if $yaml;
-
     # 
     # create a sample of generated Perl structures
     # 
-    open STRUCT, ">$fname.pl" 
+    open STRUCT, ">test/$fname.pl" 
         or die "can't create $fname.pl\n";
     local $Data::Dumper::Indent=1;
     print STRUCT Data::Dumper->Dump( 

@@ -24,7 +24,12 @@ $params = {
     }
   ],
   'title' => 'DBIx::SQLCrosstab test',
-  'op' => 'SUM',
+  'op' => [
+    [
+      'SUM',
+      'salary'
+    ]
+  ],
   'rows' => [
     {
       'col' => 'country'
@@ -40,7 +45,6 @@ $params = {
   'col_total' => 1,
   'title_in_header' => 1,
   'commify' => 1,
-  'op_col' => 'salary',
   'col_names' => [
     'country',
     'location',

@@ -17,8 +17,8 @@
 
 use strict;
 use DBI;
-use DBIx::SQLCrosstab         1.15;
-use DBIx::SQLCrosstab::Format 0.06;
+use DBIx::SQLCrosstab         1.17;
+use DBIx::SQLCrosstab::Format 0.07;
 my $othertest = shift;
 
 my $col_names = [ 'country', 'location', 
@@ -55,8 +55,8 @@ my $records = [
 
 my $params = {
     dbh            => {dsn=>"dbi:ExampleP:test"},
-    op             => 'SUM',    
-    op_col         => 'salary',
+    op             => [[ 'SUM', 'salary' ] ],    
+    # op_col         => 'salary',
     title          => 'DBIx::SQLCrosstab test',
     records        => $records,
     col_names      => $col_names,
@@ -109,6 +109,11 @@ my @tests = (qw(creation stub_create set_param
                 struct_hoh struct_losh struct_hoh
                 struct_loh struct_lol ));
 
+eval {require YAML;};
+if ($@) {
+    @tests = grep { $_ ne 'yaml' } @tests;
+}
+        
 my %all_tests = (
     creation    => sub { defined $xt },
     stub_create => sub { defined $xt_stub },
@@ -164,6 +169,16 @@ printf "%-14s: %2d\n%-14s: %2d\n%-14s: %2d\n%-14s: %2d\n",
         "failed", $failed, ;
 if ($passed == $total_tests) {
     print "all tests passed\n";
+    print "If DBD::SQLite is installed, you can try now an extended test\n";
+    print "Do you want to try the extended test? (Y/n) [Y] ";
+    my $agreement = <>;
+    chomp $agreement;
+    if ( $agreement =~ /^\s*y?\s*$/i){
+        do "test/test_extended.pl"
+    }
+    else {
+        print "You may run the test manually after the installation is completed\n";
+    }
 }
 else {
     printf "%4.2f%s passed, %4.2f%s failed\n", 

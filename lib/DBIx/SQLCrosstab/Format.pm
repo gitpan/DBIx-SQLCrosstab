@@ -4,10 +4,10 @@ use warnings;
 use DBI;
 use DBIx::SQLCrosstab;
 
-our $VERSION = '0.6';
-# 12-Oct-2003
+our $VERSION = '0.7';
+# 08-Jan-2004
 
-require 5.006;
+require 5.006001;
 
 require Exporter;
 our @ISA= qw(DBIx::SQLCrosstab);
@@ -120,9 +120,9 @@ sub _find_headers {
         });
     }
     else {
-        my $recs_rows = scalar @{$self->{recs}} -1;
+        my $recs_rows = $#{$self->{recs}};
         COL:
-        for my $col ( 0.. scalar @{$self->{recs}->[0]} -1) {
+        for my $col ( 0.. $#{$self->{recs}->[0]} ) {
             my $all_numeric =1;
             for my $row( 0.. $recs_rows) {
                 my $value = $self->{recs}[$row][$col];
@@ -229,9 +229,7 @@ sub html_header{
     my $self=shift;
     my $html_title = "XTAB";
     if ($self->{title}) {
-        $html_title = uc $self->{op}
-            . "("
-            . $self->{op_col} . ") "
+        $html_title = $self->op_list
             .$self->{title};
     }
     return
@@ -691,8 +689,7 @@ DBIx::SQLCrosstab::Format - Formats results created by DBIx::SQLCrosstab
 
     my $params = {
         dbh    => $dbh,
-        op     => 'SUM',
-        op_col => 'salary',
+        op     => [ [ 'SUM', 'salary'] ],
         from   => 'person INNER JOIN departments USING (dept_id)',
         rows   => [
                     { col => 'country'},
@@ -892,5 +889,7 @@ Available after a call to _find_headers().
 =head1 SEE ALSO
 
 L<DBIx::SQLCrosstab>
+
+An article at OnLamp, "Generating Database Server-Side Cross Tabulations" (L<http://www.onlamp.com/pub/a/onlamp/2003/12/04/crosstabs.html>) and one at PerlMonks, "SQL Crosstab, a hell of a DBI idiom" (L<http://www.perlmonks.org/index.pl?node_id=313934>).
 
 =cut

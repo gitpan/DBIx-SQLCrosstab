@@ -5,8 +5,8 @@ use DBI;
 use Data::Dumper;
 use Tree::DAG_Node;
 
-our $VERSION = '1.15';
-# 12-Oct-2003
+our $VERSION = '1.17';
+# 07-Jan-2004
 
 require 5.006;
 
@@ -20,46 +20,46 @@ my $_RaiseError = 0;
 my $_PrintError = 0;
 
 my %_xkeywords = (
-     dbh                => 1,
-     rows               => 1,
-     cols               => 1,
-     op                 => 1,
-     op_col             => 1,
-     from               => 1,
+   dbh                => 1,
+   rows               => 1,
+   cols               => 1,
+   op                 => 1,
+   op_col             => 0, # DEPRECATED - KEPT for backward compatibility
+   from               => 1,
 
-     add_op             => 0,
-     records            => 0,
-     col_names          => 0,
+   add_op             => 0, # DEPRECATED - KEPT for backward compatibility
+   records            => 0,
+   col_names          => 0,
 
-     where              => 0,
-     having             => 0,
-     title              => 0,
-     remove_if_null     => 0,
-     remove_if_zero     => 0,
-     row_total          => 0,
-     row_sub_total      => 0,
-     col_total          => 0,
-     col_sub_total      => 0,
-     col_exclude        => 0,
+   where              => 0,
+   having             => 0,
+   title              => 0,
+   remove_if_null     => 0,
+   remove_if_zero     => 0,
+   row_total          => 0,
+   row_sub_total      => 0,
+   col_total          => 0,
+   col_sub_total      => 0,
+   col_exclude        => 0,
 
-     complete_html_page => 0,
-     only_html_header   => 0,
+   complete_html_page => 0,
+   only_html_header   => 0,
 
-     add_colors         => 0,
-     text_color         => 0,
-     number_color       => 0,
-     header_color       => 0,
-     footer_color       => 0,
-     table_border       => 0,
-     table_cellspacing  => 0,
-     table_cellpadding  => 0,
-     commify            => 0,
-     title_in_header    => 0,
+   add_colors         => 0,
+   text_color         => 0,
+   number_color       => 0,
+   header_color       => 0,
+   footer_color       => 0,
+   table_border       => 0,
+   table_cellspacing  => 0,
+   table_cellpadding  => 0,
+   commify            => 0,
+   title_in_header    => 0,
 
-     add_real_names     => 0,
-     use_real_names     => 0,
-     RaiseError         => 0,
-     PrintError         => 0,
+   add_real_names     => 0,
+   use_real_names     => 0,
+   RaiseError         => 0,
+   PrintError         => 0,
 );
 
 my %_rowkeywords = (
@@ -80,14 +80,14 @@ my %_colkeywords = (
 
 my $_stub = {
     dbh    => {dsn=>"dbi:ExampleP:test"},
-    op     => 'COUNT',
-    op_col => 'dummy',
+    op     => [ [ 'COUNT' =>  'dummy' ] ], 
     from   => 'dummy',
     cols => [ {id  => 'dummy', from => 'dummy'}],
     rows => [ {col => 'dummy'}],
 };
 
-my  @_operations = map {qr/^\s*$_\s*$/i} (qw( count sum avg std max min));
+my  @_operations = map {qr/^\s*$_\s*$/i} 
+    (qw(count sum avg std var max min));
 
 sub new {
     my $class = shift;
@@ -128,13 +128,27 @@ sub set_param {
         my $value = shift;
         if (exists $_xkeywords{$param}) {
             $self->{$param} = $value;
-            return undef unless $self->_check_required;
         }
         else {
             return seterr("unrecognized parameter $param ");
         }
     }
-    return 1;
+    return $self->_check_required;
+}
+
+sub op_list{
+    my $self = shift;
+    return join ",", map { uc( $_->[0]) ."($_->[1])" } @{$self->{op}};
+}
+
+sub op {
+    my $self = shift;
+    return join ",", map { uc $_->[0] } @{$self->{op}};
+}
+
+sub op_col {
+    my $self = shift;
+    return join ",", map { $_->[1] } @{$self->{op}};
 }
 
 sub get_params {
@@ -241,11 +255,13 @@ sub _check_required {
             unless defined $self->{$_};
     }
     if (defined $self->{dbh}) {
-        if ((ref $self->{dbh}) =~ 'DBI::db') 
+        if ( ref($self->{dbh}) 
+            && ( (ref $self->{dbh}) =~ 'DBI::db' )) 
         {
             # OK
         }
-        elsif (ref $self->{dbh} eq "HASH") 
+        elsif (ref($self->{dbh}) 
+              && ( ref( $self->{dbh}) eq "HASH")) 
         {
             my $par = $self->{dbh};
             my $dbh;
@@ -293,36 +309,74 @@ sub _check_required {
         }
     }
     my $op_allowed = 0;
-    for my $op (@_operations) {
-        if ($self->{op} =~ $op ) {
-            $op_allowed =1;
-            last;
+   
+    unless ( ref($self->{op}) )
+    # compatibility code for {op}
+    {
+        my $tmpop;
+        return seterr("Parameter 'op_col' undefined")
+            unless defined $self->{op_col};
+        push @$tmpop, [ $self->{op}, $self->{op_col}];
+        if ($self->{add_op}) {
+            return seterr("Parameter 'add_op' must be an array reference")
+                unless (ref($self->{add_op}) 
+                       && (ref($self->{add_op}) eq 'ARRAY'));
+            for my $aop(@{$self->{add_op}}) {
+                push @$tmpop, [$aop, $self->{op_col}];
+            }
+            delete $self->{add_op};
         }
+        delete $self->{op_col};
+        $self->{op} = $tmpop;    
     }
-    return seterr("operation not allowed (" . $self->{op} . ")")
-        unless $op_allowed;
-    if ($self->{add_op}) {
-        if (ref $self->{add_op} eq 'ARRAY') {
-            my %seen =();
-            my @ops = grep {
-                    ($_ ne $self->{op})
-                    and (not $seen{$_}++) } @{$self->{add_op}};
-            if (@ops) {
-                $self->{col_total} = 0;
-                $self->{add_op} = \@ops;
-            }
-            else {
-                $self->{add_op} = undef;
-            }
+
+    return seterr("Parameter 'op' must be an array reference") 
+        unless ref($self->{op}) eq 'ARRAY';
+    for my $op (@{$self->{op}}) {
+        return 
+        seterr("All items in parameter {op} must be array references")
+            unless (ref($op) && (ref($op) eq 'ARRAY'));
+        for my $item (@_operations) {
+           return seterr("unrecognized operator $op->[0]")
+               unless grep { $op->[0] =~ $_ } @_operations; 
+           return seterr("Invalid opertator definition (@{$op})")
+               unless @$op eq 2;
         }
-        elsif (lc($self->{add_op}) eq lc($self->{op})) 
-        {
-            $self->{add_op} = undef;
-        }
-        else {
+        if (scalar @{$self->{op}} > 1) {
             $self->{col_total} = 0;
         }
     }
+        
+    #for my $op (@_operations) {
+    #    if ($self->{op} =~ $op ) {
+    #        $op_allowed =1;
+    #        last;
+    #    }
+    #}
+    #return seterr("operation not allowed (" . $self->{op} . ")")
+    #    unless $op_allowed;
+    #if ($self->{add_op}) {
+    #    if (ref $self->{add_op} eq 'ARRAY') {
+    #        my %seen =();
+    #        my @ops = grep {
+    #                ($_ ne $self->{op})
+    #                and (not $seen{$_}++) } @{$self->{add_op}};
+    #        if (@ops) {
+    #            $self->{col_total} = 0;
+    #            $self->{add_op} = \@ops;
+    #        }
+    #        else {
+    #            $self->{add_op} = undef;
+    #        }
+    #    }
+    #    elsif (lc($self->{add_op}) eq lc($self->{op})) 
+    #    {
+    #        $self->{add_op} = undef;
+    #    }
+    #    else {
+    #        $self->{col_total} = 0;
+    #    }
+    #}
     if ($self->{add_real_names} and $self->{use_real_names}) {
         $self->{add_real_names} = 0;
     }
@@ -429,20 +483,6 @@ sub _xpermute {
     );
     $tree->delete_tree;
     return \@permuted;
-}
-
-sub op_col {
-    my $self = shift;
-    my $val = shift;
-    $self->{op_col} = $val if $val;
-    return $self->{op_col};
-}
-
-sub op {
-    my $self = shift;
-    my $val = shift;
-    $self->{op} = $val if $val;
-    return $self->{op};
 }
 
 sub from {
@@ -729,11 +769,9 @@ sub get_query {
     my %realnames =();
     my $col_count ="xfld001";
 
-    for my $op ($self->{op}, 
-        (ref($self->{add_op}) eq 'ARRAY')? 
-            @{$self->{add_op}} : $self->{add_op} ) 
+    for my $op_pair (@{$self->{op}})  
     {
-        next unless $op;
+        my ($operator, $opcolumn) = @$op_pair;
         for my $val (@permutations) 
         {
             my @cn = @{$self->{cols}};
@@ -755,8 +793,9 @@ sub get_query {
             #
             # name manipulation
             #
-            if ($self->{add_op} ) { 
-                $name = lc($op) . $self->{query_separator} . $name ;
+            if (@{$self->{op}} > 1 ) { 
+                $name = "x" . lc($operator) 
+                    . $self->{query_separator} . $name ;
             }
             if ($self->{use_real_names}) {
                 $name = $dbh->quote($name);
@@ -770,8 +809,8 @@ sub get_query {
             #
             #
             my $line =
-                qq[,$op(CASE WHEN $condition THEN ]
-                .qq[ $self->{op_col} ELSE NULL END) AS $name ] ;
+                qq[,$operator(CASE WHEN $condition THEN ]
+                .qq[ $opcolumn ELSE NULL END) AS $name ] ;
             if ($self->{add_real_names} )
             {
                 $line .= qq[ -- ($realnames{$name}) \n];
@@ -782,17 +821,16 @@ sub get_query {
 
             push @xcols, $line;
         }
-        if ($self->{add_op} and $self->{col_sub_total})
+        if ((@{$self->{op}} > 1) and $self->{col_sub_total})
         {
-            my $opname = $dbh->quote(lc $op);
-            my $line = qq[,$op($self->{op_col}) AS $opname\n];
+            my $opname = "x".lc($operator);
+            my $line = qq[,$operator($opcolumn) AS $opname\n];
             push @xcols, $line;
         }
     }
-    if ($self->{add_op}) {
+    if (@{$self->{op}} > 1) {
         unshift @{$self->{cols}},  { id => 'op', value=>'op',  
-            col_list => (ref $self->{add_op} eq 'ARRAY') ?  
-                $self->{add_op} : [ $self->{add_op} ] }
+            col_list => [map {"x". lc($_->[0])} @{$self->{op}} ] }
     }
     $self->{realnames} = \%realnames;
 
@@ -807,7 +845,8 @@ sub get_query {
     $query .= $_ for @xcols;
     my $total1 = 'total';
     if ($self->{col_total}) {
-        $query .= qq[,$self->{op}($self->{op_col}) AS $total1\n];
+        my ($operator, $opcolumn) = @{$self->{op}->[0]};
+        $query .= qq[,$operator($opcolumn) AS $total1\n];
     }
     $query .= qq[ FROM $self->{from}\n ];
     if ($self->{where}) {
@@ -836,7 +875,8 @@ sub get_query {
             $query .= qq{UNION\n SELECT $xrows \n};
             $query .= $_ for @xcols;
             if ($self->{col_total} ) {
-                $query .= qq[,$self->{op}($self->{op_col}) AS $total1\n];
+                my ($operator, $opcolumn) = @{$self->{op}->[0]};
+                $query .= qq[,$operator($opcolumn) AS $total1\n];
             }
             $query .= qq[ FROM $self->{from}\n ];
             $xrows = join ", ",
@@ -862,7 +902,8 @@ sub get_query {
         $query .= qq{UNION\n SELECT $xrows\n};
         $query .= $_ for @xcols;
         if ($self->{col_total}) {
-            $query .= qq[,$self->{op}($self->{op_col}) AS $total1\n];
+            my ($operator, $opcolumn) = @{$self->{op}->[0]};
+            $query .= qq[,$operator($opcolumn) AS $total1\n];
         }
         $query .= qq[ FROM $self->{from}\n ];
 
@@ -1039,8 +1080,7 @@ DBIx::SQLCrosstab - creates a server-side cross tabulation from a database
 
     my $params = {
         dbh    => $dbh,
-        op     => 'SUM',
-        op_col => 'salary',
+        op     => [ ['SUM', 'salary'] ], 
         from   => 'person INNER JOIN departments USING (dept_id)',
         rows   => [
                     { col => 'country'},
@@ -1311,11 +1351,22 @@ $params is a hash reference containing at least the following parameters:
                     }
 
     op      
-            the operation to perform (SUM, COUNT, AVG, MIN, MAX, STD)
-            (provided that your DBMS supports them)
+            the operation to perform (SUM, COUNT, AVG, MIN, MAX, STD,
+            VAR, provided that your DBMS supports them)
+            and the column to summarize. It must be an array reference,
+            with each item a pair of operation/column.
+            E.g.: 
+            op => [ [ 'COUNT', 'id'], ['SUM', 'salary'] ],
+        
+            *** WARNING ***
+            Use of this parameter as a scalar is still supported
+            but it is DEPRECATED.
+    
 
     op_col  
             The column on which to perform the operation
+            *** DEPRECATED ***
+            Use {op} as an array reference instead.
 
     from    
             Where to get the data. It could be as short as
@@ -1390,7 +1441,8 @@ $params is a hash reference containing at least the following parameters:
             For example, if 'op' is 'COUNT', you may set add_op to
             ['SUM', 'AVG'] and the crosstab engine will produce 
             a table having the count, sum and average of the 
-            value in 'col_op'.
+            value in 'op_col'.
+            *** DEPRECATED *** Use {op} as an array reference instead.
 
     title   
             A title for the crosstab. Will be used for HTML and XML
@@ -1649,6 +1701,8 @@ Giuseppe Maxia (<gmax_at_cpan.org>)
 =head1 SEE ALSO
 
 DBI
+
+An article at OnLamp, "Generating Database Server-Side Cross Tabulations" (L<http://www.onlamp.com/pub/a/onlamp/2003/12/04/crosstabs.html>) and one at PerlMonks, "SQL Crosstab, a hell of a DBI idiom" (L<http://www.perlmonks.org/index.pl?node_id=313934>).
 
 =head1 COPYRIGHT
 
