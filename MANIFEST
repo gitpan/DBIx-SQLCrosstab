@@ -1,0 +1,10 @@
+Changes
+MANIFEST
+Makefile.PL
+README
+SQLCrosstab.pm
+examples/sqlcrosstab_example.pl
+examples/xtab.sqlite
+examples/xtab.mysql
+lib/DBIx/SQLCrosstab/Format.pm
+test.pl
